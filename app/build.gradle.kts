@@ -39,5 +39,5 @@ android {
 dependencies {
     compileOnly("de.robv.android.xposed:api:82")
     implementation("com.github.kyuubiran:EzXHelper:2.2.1")
-    implementation("org.luckypray:dexkit:2.0.6")
+    implementation("org.luckypray:dexkit:2.0.7")
 }
