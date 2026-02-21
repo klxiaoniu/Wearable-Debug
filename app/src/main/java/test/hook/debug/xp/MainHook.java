@@ -318,119 +318,33 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             }
         });
 
-        XposedHelpers.findAndHookMethod("com.xiaomi.fitness.notify.BaseNotifySyncService", classLoader, "onNotificationPosted", "android.service.notification.StatusBarNotification", new XC_MethodHook() {
+        XposedHelpers.findAndHookMethod("com.xiaomi.fitness.notify.util.NotificationFilterHelper", classLoader, "isWeChatIncomingCall", "android.service.notification.StatusBarNotification", "java.lang.String", "java.lang.String", new XC_MethodHook() {
             @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                super.beforeHookedMethod(param);
-                if (param.args[0] == null) {
-                    return;
-                }
-                StatusBarNotification sbn = (StatusBarNotification) param.args[0];
-                Notification notification = sbn.getNotification();
-                Bundle bundle = notification != null ? notification.extras : null;
-//                String title = bundle != null ? bundle.getCharSequence("android.title").toString() : null;
-//                String text = bundle != null ? bundle.getCharSequence("android.text").toString() : null;
-                String title = getTitle(bundle);
-                String text = getText(bundle);
-                XposedBridge.log("bundle: " + bundle.toString());
-                XposedBridge.log("title: " + title + ", text: " + text);
-                Class<?> NotificationFilterHelperClass = classLoader.loadClass("com.xiaomi.fitness.notify.util.NotificationFilterHelper");
-                Object notificationFilterHelper = XposedHelpers.getStaticObjectField(NotificationFilterHelperClass, "INSTANCE");
-                boolean isWeChatIncomingCall = (boolean) XposedHelpers.callMethod(notificationFilterHelper, "isWeChatIncomingCall", sbn, title, text);
-                XposedBridge.log("isWechatIncomingCall: " + isWeChatIncomingCall);
-                if (isWeChatIncomingCall) {
-                    if (title != null && text != null) {
-                        Class<?> BleNotifyModelClass = classLoader.loadClass("com.xiaomi.fitness.notify.BleNotifyModel");
-                        Object bleNotifyModel = XposedHelpers.getStaticObjectField(BleNotifyModelClass, "INSTANCE");
-                        XposedHelpers.callMethod(bleNotifyModel, "updatePhoneStatus", 1);
-                        Class<?> InCallClass = classLoader.loadClass("com.xiaomi.fitness.settingitem.settingitem.InCall");
-                        XposedHelpers.callMethod(bleNotifyModel, "addCallNotification", new Class<?>[]{String.class, String.class, int.class, InCallClass}, text, null, 1, null);
-//                    } else {
-//                    }
-//                        Class<?> WechatCallNotifyManagerClass = classLoader.loadClass("com.xiaomi.fitness.notify.callnotify.WechatCallNotifyManager");
-//                        Object wechatCallNotifyManager = XposedHelpers.getStaticObjectField(WechatCallNotifyManagerClass, "INSTANCE");
-//                        String key = sbn.getKey();
-//                        long postTime = sbn.getPostTime();
-//                        XposedHelpers.callMethod(wechatCallNotifyManager, "setKeyAndTime", new Class<?>[]{String.class, long.class}, key, postTime);
-                        new Thread(() -> {
-                            try {
-                                Thread.sleep(6000);
-                            } catch (InterruptedException ignored) {
-                            }
-                            XposedHelpers.callMethod(bleNotifyModel, "updatePhoneStatus", 0);
-                            XposedHelpers.callMethod(bleNotifyModel, "alertInCallStop");
+            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                super.afterHookedMethod(param);
+//                StatusBarNotification sbn = (StatusBarNotification) param.args[0];
+                String title = (String) param.args[1];
+                String text = (String) param.args[2];
+                boolean isWeChatIncomingCall = (boolean) param.getResult();
+//                XposedBridge.log(title + text + isWeChatIncomingCall);
+                if (isWeChatIncomingCall && title != null && text != null) {
+                    Class<?> BleNotifyModelClass = classLoader.loadClass("com.xiaomi.fitness.notify.BleNotifyModel");
+                    Object bleNotifyModel = XposedHelpers.getStaticObjectField(BleNotifyModelClass, "INSTANCE");
+                    XposedHelpers.callMethod(bleNotifyModel, "updatePhoneStatus", 1);
+                    Class<?> InCallClass = classLoader.loadClass("com.xiaomi.fitness.settingitem.settingitem.InCall");
+                    XposedHelpers.callMethod(bleNotifyModel, "addCallNotification", new Class<?>[]{String.class, String.class, int.class, InCallClass}, text, null, 1, null);
 
-                        }).start();
-                    }
-//                    param.setResult(null);
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(6000);
+                        } catch (InterruptedException ignored) {
+                        }
+                        XposedHelpers.callMethod(bleNotifyModel, "updatePhoneStatus", 0);
+                        XposedHelpers.callMethod(bleNotifyModel, "alertInCallStop");
+                    }).start();
                 }
-
             }
         });
-
-//        XposedHelpers.findAndHookMethod("com.xiaomi.fitness.notify.BaseNotifySyncService", classLoader, "onNotificationRemoved", "android.service.notification.StatusBarNotification", "android.service.notification.NotificationListenerService$RankingMap", int.class, new XC_MethodHook() {
-//            @Override
-//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-//                super.beforeHookedMethod(param);
-//                if (param.args[0] == null) {
-//                    return;
-//                }
-//                StatusBarNotification sbn = (StatusBarNotification) param.args[0];
-//                Notification notification = sbn.getNotification();
-//                Bundle bundle = notification != null ? notification.extras : null;
-////                String title = bundle != null ? bundle.getCharSequence("android.title").toString() : null;
-////                String text = bundle != null ? bundle.getCharSequence("android.text").toString() : null;
-//                String title = getTitle(bundle);
-//                String text = getText(bundle);
-//                XposedBridge.log("bundle: " + bundle.toString());
-//                XposedBridge.log("title: " + title + ", text: " + text);
-////                Class<?> NotificationFilterHelperClass = classLoader.loadClass("com.xiaomi.fitness.notify.util.NotificationFilterHelper");
-////                Object notificationFilterHelper = XposedHelpers.getStaticObjectField(NotificationFilterHelperClass, "INSTANCE");
-////                boolean isWeChatIncomingCall = (boolean) XposedHelpers.callMethod(notificationFilterHelper, "isWeChatIncomingCall", sbn, title, text);
-//                Class<?> WechatCallNotifyManagerClass = classLoader.loadClass("com.xiaomi.fitness.notify.callnotify.WechatCallNotifyManager");
-//                Object wechatCallNotifyManager = XposedHelpers.getStaticObjectField(WechatCallNotifyManagerClass, "INSTANCE");
-//                String key = sbn.getKey();
-//                boolean isCallNotifyKey = (boolean) XposedHelpers.callMethod(wechatCallNotifyManager, "isCallNotifyKey", new Class<?>[]{String.class}, key);
-//                XposedBridge.log("isCallNotifyKey: " + isCallNotifyKey);
-//                if (isCallNotifyKey) {
-//                    Class<?> BleNotifyModelClass = classLoader.loadClass("com.xiaomi.fitness.notify.BleNotifyModel");
-//                    Object bleNotifyModel = XposedHelpers.getStaticObjectField(BleNotifyModelClass, "INSTANCE");
-//                    XposedHelpers.callMethod(bleNotifyModel, "updatePhoneStatus", 0);
-//                    XposedHelpers.callMethod(bleNotifyModel, "alertInCallStop");
-//
-//
-//                    param.setResult(null);
-//                }
-//
-//            }
-//        });
-
-//        XposedHelpers.findAndHookMethod("com.xiaomi.fitness.notify.callnotify.WechatCallNotifyManager", classLoader, "sendRemoveMessageDelayIfNeed", "android.os.Handler", long.class, "android.os.Message", new XC_MethodHook() {
-//            @Override
-//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-//                super.beforeHookedMethod(param);
-//
-////                延迟6s执行
-////                new Thread(() -> {
-////                    try {
-////                        Thread.sleep(6000);
-////                    } catch (InterruptedException e) {
-////                    }
-////                    try {
-//                Class<?> BleNotifyModelClass = classLoader.loadClass("com.xiaomi.fitness.notify.BleNotifyModel");
-//                Object bleNotifyModel = XposedHelpers.getStaticObjectField(BleNotifyModelClass, "INSTANCE");
-//                XposedHelpers.callMethod(bleNotifyModel, "updatePhoneStatus", 0);
-//                XposedHelpers.callMethod(bleNotifyModel, "alertInCallStop");
-////                    } catch (ClassNotFoundException e) {
-////
-////                    }
-////
-////                }).start();
-//
-//
-//                param.setResult(null);
-//            }
-//        });
     }
 
     @Override

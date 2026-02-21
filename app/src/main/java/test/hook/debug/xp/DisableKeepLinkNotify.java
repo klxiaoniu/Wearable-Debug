@@ -61,7 +61,7 @@ public class DisableKeepLinkNotify {
                     }
                 });
             }
-        } catch (Exception e) {
+        } catch (NoSuchMethodError | Exception e) {
             Log.e("Failed to disable red dot for device settings", e);
         }
     }
@@ -74,7 +74,7 @@ public class DisableKeepLinkNotify {
                     return null;
                 }
             });
-        } catch (Exception e) {
+        } catch (NoSuchMethodError | Exception e) {
             Log.e("Failed to disable red dot for tab", e);
         }
     }
@@ -87,7 +87,7 @@ public class DisableKeepLinkNotify {
                     return null;
                 }
             });
-        } catch (Exception e) {
+        } catch (NoSuchMethodError | Exception e) {
             Log.e("Failed to disable keep link dialog", e);
         }
     }
