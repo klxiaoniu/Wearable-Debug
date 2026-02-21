@@ -8,14 +8,17 @@ plugins {
 
 android {
     namespace = "test.hook.debug"
-    compileSdk = 33
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "test.hook.debug"
         minSdk = 26
-        targetSdk = 33
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        ndk {
+            abiFilters.add("arm64-v8a")
+        }
     }
 
     buildTypes {
