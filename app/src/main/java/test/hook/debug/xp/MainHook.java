@@ -25,7 +25,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
 
@@ -181,36 +180,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         return true;
     }
 
-    /**
-     * 国际版3.33.6i出现Banner广告，拦截广告加载
-     */
-    private static void interceptAd(ClassLoader classLoader) {
-        try {
-            Class<?> impl = ClassUtils.loadClass("com.fitness.banner.export.BannerImpl", classLoader);
-            for (Method method : impl.getDeclaredMethods()) {
-                if (method.getName().startsWith("getBannerListAsync")) {
-                    HookFactory.createMethodHook(method, hookFactory -> hookFactory.replace(methodHookParam -> null));
-                } else if (method.getName().startsWith("getBannerList")) {
-                    HookFactory.createMethodHook(method, hookFactory -> hookFactory.replace(methodHookParam -> Collections.emptyList()));
-                }
-            }
-        } catch (ClassNotFoundException ignored) {
-        }
-    }
-
-    private static void disableReport(ClassLoader classLoader) {
-        try {
-            Class<?> reportImpl = ClassUtils.loadClass("com.xiaomi.fitness.statistics.OnetrackImpl", classLoader);
-            for (Method method : reportImpl.getDeclaredMethods()) {
-                if (!"reportData".equals(method.getName())) {
-                    continue;
-                }
-                HookFactory.createMethodHook(method, hookFactory -> hookFactory.replace(methodHookParam -> null));
-            }
-
-        } catch (ClassNotFoundException ignore) {
-        }
-    }
 
     private static final String getText(Bundle bundle) {
         Object obj = bundle != null ? bundle.get("android.text") : null;
@@ -474,8 +443,13 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         EzXHelper.setLogTag("WearableDebug");
         EzXHelper.setToastTag("WearableDebug");
         DexKit.INSTANCE.initDexKit(loadPackageParam);
-        interceptAd(loadPackageParam.classLoader);
-        disableReport(loadPackageParam.classLoader);
+        DisableAd.interceptAd(loadPackageParam.classLoader);
+        DisableAd.disableReport(loadPackageParam.classLoader);
+
+        DisableKeepLinkNotify.disableDeviceSystemRedDot(loadPackageParam.classLoader);
+        DisableKeepLinkNotify.disableTabRedDot(loadPackageParam.classLoader);
+        DisableKeepLinkNotify.disableDialog(loadPackageParam.classLoader);
+
         loadHook(loadPackageParam.classLoader);
         DexKit.INSTANCE.closeDexKit();
     }
