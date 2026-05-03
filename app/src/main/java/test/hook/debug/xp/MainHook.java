@@ -4,13 +4,12 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
-import android.app.Notification;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.service.notification.StatusBarNotification;
 import android.widget.EditText;
 import android.widget.Toast;
 
@@ -33,7 +32,6 @@ import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XC_MethodReplacement;
-import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_InitPackageResources;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
@@ -318,6 +316,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             }
         });
 
+        // 微信通话6s强提醒
         XposedHelpers.findAndHookMethod("com.xiaomi.fitness.notify.util.NotificationFilterHelper", classLoader, "isWeChatIncomingCall", "android.service.notification.StatusBarNotification", "java.lang.String", "java.lang.String", new XC_MethodHook() {
             @Override
             protected void afterHookedMethod(MethodHookParam param) throws Throwable {
@@ -352,6 +351,22 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                 protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                     super.beforeHookedMethod(param);
                     param.setResult(true);
+                }
+            });
+        } catch (NoSuchMethodError e) {
+
+        }
+
+        try {
+            // 修复：新版本日程导入适配了ColorOS，但是启用条件为厂商是oppo，导致一加无开关
+            // Lcom/xiaomi/fitness/sync/util/CalendarUtils;->getNormalReminder(Landroid/content/Context;Landroid/database/Cursor;)I
+            XposedHelpers.findAndHookMethod("com.xiaomi.fitness.common.utils.RomUtils", classLoader, "isOppo", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    super.beforeHookedMethod(param);
+                    if (Build.BRAND.toLowerCase().contains("oneplus") || Build.MANUFACTURER.toLowerCase().contains("oneplus")) {
+                        param.setResult(true);
+                    }
                 }
             });
         } catch (NoSuchMethodError e) {
