@@ -3,5 +3,6 @@
     <string-array name="xposedscope">
         <item>com.mi.health</item>
         <item>com.xiaomi.wearable</item>
+        <item>android</item>
     </string-array>
 </resources>

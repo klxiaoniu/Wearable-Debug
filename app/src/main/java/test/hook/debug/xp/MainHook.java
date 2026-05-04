@@ -32,6 +32,7 @@ import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XC_MethodReplacement;
+import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_InitPackageResources;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
@@ -345,6 +346,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             }
         });
 
+        // 显示系统设置-勿扰模式同步入口，并执行相关逻辑
         try {
             XposedHelpers.findAndHookMethod("com.xiaomi.fitness.devicesettings.utils.ZenUtils", classLoader, "isSupportZenMode", classLoader.loadClass("com.xiaomi.fitness.device.manager.export.WearableDeviceModel"), new XC_MethodHook() {
                 @Override
@@ -374,9 +376,94 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         }
     }
 
+    /**
+     * setInterruptionFilter调用方为小米运动健康时，伪装为系统，实现全局开关
+     * 通知栏可能会显示为 “Android 系统”已开启免打扰
+     * 如果不做此处理，当手机开免打扰+手环关免打扰时，手机上的免打扰会无法关闭，因为走的是规则模式，而手机打开的是全局开关
+     * HyperOS高版本有做相关功能（ZenModeSyncHelper），不走这里，理论上hook了也没事
+     * 手机上监听系统免打扰变化相关代码在API35仍旧生效，不需要做处理
+     *
+     * @param classLoader
+     */
+    private static void loadHookForApi35Zen(ClassLoader classLoader) {
+        if (Build.VERSION.SDK_INT < 35) return;
+        // 小米运动健康理论上也要判断一下版本是否大于3.45.0(345000)，暂时不管了
+        // 如果要判断是不是支持小米专属勿扰同步的系统版本，可调用：
+        // Lcom/xiaomi/fitness/devicesettings/common/zenmode/ZenModeSyncHelper;->isSupportZenRuleSync(Landroid/content/Context;)Z
+        try {
+            XposedBridge.log("搜索 SystemServer 的匿名内部类...");
+            boolean isHooked = false;
+
+            for (int i = 1; i <= 25; i++) {
+                String className = "com.android.server.notification.NotificationManagerService$" + i;
+
+                Class<?> innerClass = XposedHelpers.findClassIfExists(className, classLoader);
+
+                if (innerClass == null) {
+                    break;
+                }
+                try {
+                    java.lang.reflect.Method method = innerClass.getDeclaredMethod(
+                            "setInterruptionFilter",
+                            String.class,
+                            int.class,
+                            boolean.class
+                    );
+
+                    XposedBridge.log("找到目标匿名类: " + className);
+
+                    // 找到后直接Hook
+                    XposedBridge.hookMethod(method, new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            String pkg = (String) param.args[0];
+
+                            if ("com.xiaomi.wearable".equals(pkg) || "com.mi.health".equals(pkg)) {
+                                // 提权：切换为 System UID (1000)
+                                long token = android.os.Binder.clearCallingIdentity();
+                                param.setObjectExtra("binder_token", token);
+
+                                // 伪装：将包名强制篡改为 android
+                                param.args[0] = "android";
+                                XposedBridge.log("SystemServer: 匹配到小米运动健康，已执行UID提权并伪装包名");
+                            }
+                        }
+
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            Object tokenObj = param.getObjectExtra("binder_token");
+                            if (tokenObj != null) {
+                                // 恢复UID身份
+                                android.os.Binder.restoreCallingIdentity((long) tokenObj);
+                            }
+                        }
+                    });
+
+                    isHooked = true;
+                    XposedBridge.log("SystemServer: 匿名内部类 Hook 注入成功");
+                    break; // 命中目标后直接跳出循环，结束穷举
+
+                } catch (NoSuchMethodException e) {
+                    // 当前编号的匿名类不是我们要找的那个（比如它没有这个三参数方法），继续找下一个
+                }
+            }
+
+            if (!isHooked) {
+                XposedBridge.log("查找setInterruptionFilter方法失败");
+            }
+
+        } catch (Throwable t) {
+            XposedBridge.log("SystemServer穷举Hook异常: " + t);
+        }
+    }
+
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam loadPackageParam) throws ClassNotFoundException {
         String packageName = loadPackageParam.packageName;
+        if ("android".equals(packageName) || "android".equals(loadPackageParam.processName)) {
+            loadHookForApi35Zen(loadPackageParam.classLoader);
+            return;
+        }
         if (!"com.xiaomi.wearable".equals(packageName) && !"com.mi.health".equals(packageName)) {
             return;
         }
