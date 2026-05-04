@@ -47,22 +47,33 @@ public class DisableAd {
     }
 
     /**
-     * 隐藏蚂蚁阿福横幅
+     * 隐藏蚂蚁阿福和健康问诊横幅
      *
      * @param classLoader
      */
     public static void hideAqView(ClassLoader classLoader) {
-        Class<?> AqViewClass;
+        Class<?> AqViewClass = null;
+        Class<?> HealthBannerCardSetViewClass = null;
         try {
             AqViewClass = classLoader.loadClass("com.xiaomi.fitness.view.AqView");
         } catch (ClassNotFoundException e) {
-            return;
         }
+        try {
+            HealthBannerCardSetViewClass = classLoader.loadClass("com.xiaomi.fitness.view.HealthBannerCardSetView");
+        } catch (ClassNotFoundException e) {
+        }
+        Class<?> finalAqViewClass = AqViewClass;
+        Class<?> finalHealthBannerCardSetViewClass = HealthBannerCardSetViewClass;
         XposedHelpers.findAndHookMethod("com.xiaomi.fitness.util.ExtUtilKt", classLoader, "visible", android.view.View.class, new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(XC_MethodHook.MethodHookParam param) throws Throwable {
                 super.beforeHookedMethod(param);
-                if (((View) param.args[0]).getClass().equals(AqViewClass)) param.setResult(null);
+                View view = (View) param.args[0];
+                Class<?> clazz = view.getClass();
+                if (clazz.equals(finalAqViewClass) || clazz.equals(finalHealthBannerCardSetViewClass)) {
+                    param.setResult(null);
+                    view.setVisibility(View.GONE);
+                }
             }
         });
     }
