@@ -1,6 +1,5 @@
 package test.hook.debug.xp;
 
-import android.annotation.SuppressLint;
 import android.app.NotificationManager;
 import android.content.ContentResolver;
 import android.content.Context;
@@ -8,6 +7,8 @@ import android.database.ContentObserver;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+
+import com.github.kyuubiran.ezxhelper.EzXHelper;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -33,19 +34,21 @@ public class ZenSync {
     public static ZenSync INSTANCE = new ZenSync();
 
     public void hook(XC_LoadPackage.LoadPackageParam lpparam) {
-        Log.ix("=== ZenMode Simple Hook Start ===");
-        // ================================================================
-        // Hook 1: RomUtils.isXiaomi() → true
-        // ================================================================
-//        try {
-//            XposedHelpers.findAndHookMethod(CLS_ROM_UTILS, lpparam.classLoader,
-//                    "isXiaomi", XC_MethodReplacement.returnConstant(true));
-//            Log.ix("✓ Hook 1: isXiaomi → true");
-//        } catch (Throwable t) {
-//            Log.ex("✗ Hook 1 failed", t);
+        if (!lpparam.processName.endsWith(":device")) return;
+
+        Log.ix("=== ZenMode Hook Start ===");
+
+        // 调用isSupportZenSyncRom（里面会调用RomUtils.isXiaomi），如果是true，说明是支持小米勿扰的系统，不再继续hook
+//        Object instance = getStaticField(
+//                lpparam.classLoader, CLS_ZEN_SYNC_HELPER, "INSTANCE");
+//        boolean isSupportZenSyncRom = (boolean) XposedHelpers.callMethod(instance,
+//                "isSupportZenSyncRom", EzXHelper.getAppContext());
+//        if (isSupportZenSyncRom) {
+//            Log.ix("isSupportZenSyncRom = true, skip ZenSync hooks");
+//            return;
 //        }
         // ================================================================
-        // Hook 2: isSupportZenSyncRom() → true
+        // Hook 1: isSupportZenSyncRom() → true
         // ================================================================
         try {
             XposedHelpers.findAndHookMethod(CLS_ZEN_SYNC_HELPER, lpparam.classLoader,
@@ -56,12 +59,12 @@ public class ZenSync {
                             return true;
                         }
                     });
-            Log.ix("✓ Hook 2: isSupportZenSyncRom → true");
+            Log.ix("✓ Hook 1: isSupportZenSyncRom → true");
         } catch (Throwable t) {
-            Log.ex("✗ Hook 2 failed", t);
+            Log.ex("✗ Hook 1 failed", t);
         }
         // ================================================================
-        // Hook 3: isManualRuleActiveWithReflection() → Boolean
+        // Hook 2: isManualRuleActiveWithReflection() → Boolean
         // 获取全局勿扰开关状态
         // ================================================================
         try {
@@ -72,7 +75,7 @@ public class ZenSync {
                         protected void beforeHookedMethod(MethodHookParam param) {
                             try {
                                 NotificationManager nm = (NotificationManager)
-                                        getAppContext().getSystemService(Context.NOTIFICATION_SERVICE);
+                                        EzXHelper.getAppContext().getSystemService(Context.NOTIFICATION_SERVICE);
                                 int filter = nm.getCurrentInterruptionFilter();
                                 // INTERRUPTION_FILTER_ALL = 1 表示勿扰关闭
                                 boolean active = (filter != NotificationManager.INTERRUPTION_FILTER_ALL);
@@ -82,12 +85,12 @@ public class ZenSync {
                             }
                         }
                     });
-            Log.ix( "✓ Hook 3: isManualRuleActiveWithReflection → NM API");
+            Log.ix("✓ Hook 2: isManualRuleActiveWithReflection → NM API");
         } catch (Throwable t) {
-            Log.ex( "✗ Hook 3 failed", t);
+            Log.ex("✗ Hook 2 failed", t);
         }
         // ================================================================
-        // Hook 4: getMiuiZenRules(Context) → 返回空列表
+        // Hook 3: getMiuiZenRules(Context) → 返回空列表
         // 忽略规则相关逻辑
         // ================================================================
         try {
@@ -99,13 +102,13 @@ public class ZenSync {
                             return new ArrayList<>();
                         }
                     });
-            Log.ix( "✓ Hook 4: getMiuiZenRules → empty (skip auto rules)");
+            Log.ix("✓ Hook 3: getMiuiZenRules → empty (skip auto rules)");
         } catch (Throwable t) {
-            Log.ex("✗ Hook 4 failed", t);
+            Log.ex("✗ Hook 3 failed", t);
         }
         // ================================================================
-        // Hook 5: updatePhoneZenRules(Context, boolean, long, List)
-        // 用 setInterruptionFilter 替代 MIUI 隐藏 API
+        // Hook 4: updatePhoneZenRules(Context, boolean, long, List)
+        // 用 setInterruptionFilter 替代 HyperOS 隐藏 API
         // ================================================================
         try {
             XposedHelpers.findAndHookMethod(CLS_ZEN_SYNC_HELPER, lpparam.classLoader,
@@ -122,7 +125,7 @@ public class ZenSync {
                                 nm.setInterruptionFilter(manualState
                                         ? NotificationManager.INTERRUPTION_FILTER_PRIORITY
                                         : NotificationManager.INTERRUPTION_FILTER_ALL);
-                                Log.dx( "setInterruptionFilter: "
+                                Log.dx("setInterruptionFilter: "
                                         + (manualState ? "PRIORITY" : "ALL"));
                             } catch (Throwable t) {
                                 Log.ex("updatePhoneZenRules error", t);
@@ -130,12 +133,12 @@ public class ZenSync {
                             param.setResult(null);
                         }
                     });
-            Log.ix("✓ Hook 5: updatePhoneZenRules → setInterruptionFilter");
+            Log.ix("✓ Hook 4: updatePhoneZenRules → setInterruptionFilter");
         } catch (Throwable t) {
-            Log.ex("✗ Hook 5 failed", t);
+            Log.ex("✗ Hook 4 failed", t);
         }
         // ================================================================
-        // Hook 6: handleDeviceZenRule(Context, mnq$a)
+        // Hook 5: handleDeviceZenRule(Context, mnq$a)
         // 只处理手动规则（isManual=true），忽略自动规则
         // ================================================================
         try {
@@ -153,7 +156,7 @@ public class ZenSync {
                 if (mnqAClass != null) break;
             }
             if (mnqAClass == null) {
-                Log.wx("⚠ mnq$a not found, skip hook 6");
+                Log.wx("⚠ mnq$a not found, skip hook 5");
             } else {
                 Class<?> finalMnqAClass = mnqAClass;
                 XposedHelpers.findAndHookMethod(CLS_ZEN_SYNC_HELPER, lpparam.classLoader,
@@ -205,8 +208,30 @@ public class ZenSync {
                                 param.setResult(null);
                             }
                         });
-                Log.ix("✓ Hook 6: handleDeviceZenRule → manual rule only");
+                Log.ix("✓ Hook 5: handleDeviceZenRule → manual rule only");
             }
+        } catch (Throwable t) {
+            Log.ex("✗ Hook 5 failed", t);
+        }
+
+        // ================================================================
+        // Hook 6: Settings.Secure.getLong — 时间戳 key，默认为 0 手环端不会生效
+        // ================================================================
+        try {
+            XposedHelpers.findAndHookMethod(
+                    Settings.Secure.class,
+                    "getLong",
+                    ContentResolver.class, String.class, long.class,
+                    new XC_MethodHook() {
+                        @Override
+                        protected void beforeHookedMethod(MethodHookParam param) {
+                            if ("manual_zen_mode_last_update_time"
+                                    .equals(param.args[1])) {
+                                param.setResult(System.currentTimeMillis() / 1000);
+                            }
+                        }
+                    });
+            Log.ix("✓ Hook 6: Settings.Secure.getLong → currentTimeMillis");
         } catch (Throwable t) {
             Log.ex("✗ Hook 6 failed", t);
         }
@@ -214,21 +239,6 @@ public class ZenSync {
         // Hook 7: registerZenModeListener()
         // ContentObserver 监听 Settings.Global.zen_mode，与 ZenUtils 一致
         // ================================================================
-
-        // Hook 0: Settings.Secure.getLong — 拦截时间戳 key
-        XposedHelpers.findAndHookMethod(
-                Settings.Secure.class,
-                "getLong",
-                ContentResolver.class, String.class, long.class,
-                new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        if ("manual_zen_mode_last_update_time"
-                                .equals(param.args[1])) {
-                            param.setResult(System.currentTimeMillis() / 1000);
-                        }
-                    }
-                });
         try {
             XposedHelpers.findAndHookMethod(CLS_ZEN_SYNC_HELPER, lpparam.classLoader,
                     "registerZenModeListener",
@@ -238,7 +248,7 @@ public class ZenSync {
                             try {
                                 Object instance = getStaticField(
                                         lpparam.classLoader, CLS_ZEN_SYNC_HELPER, "INSTANCE");
-                                Context ctx = getAppContext();
+                                Context ctx = EzXHelper.getAppContext();
                                 mZenObserver = new ContentObserver(
                                         new Handler(Looper.getMainLooper())) {
                                     @Override
@@ -300,20 +310,6 @@ public class ZenSync {
     }
 
     // ==================== 辅助方法 ====================
-    @SuppressLint("PrivateApi")
-    private static Context getAppContext() {
-        try {
-            return (Context) Class.forName("android.app.ActivityThread")
-                    .getMethod("currentApplication").invoke(null);
-        } catch (Throwable t) {
-            try {
-                return (Context) Class.forName("android.app.AppGlobals")
-                        .getMethod("getInitialApplication").invoke(null);
-            } catch (Throwable t2) {
-                return null;
-            }
-        }
-    }
     private static Object getStaticField(ClassLoader cl, String className,
                                          String fieldName) {
         try {
