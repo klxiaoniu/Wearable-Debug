@@ -34,8 +34,6 @@ public class ZenSync {
     public static ZenSync INSTANCE = new ZenSync();
 
     public void hook(XC_LoadPackage.LoadPackageParam lpparam) {
-        if (!lpparam.processName.endsWith(":device")) return;
-
         Log.ix("=== ZenMode Hook Start ===");
 
         // 调用isSupportZenSyncRom（里面会调用RomUtils.isXiaomi），如果是true，说明是支持小米勿扰的系统，不再继续hook
@@ -63,6 +61,9 @@ public class ZenSync {
         } catch (Throwable t) {
             Log.ex("✗ Hook 1 failed", t);
         }
+
+        if (!lpparam.processName.endsWith(":device")) return;
+
         // ================================================================
         // Hook 2: isManualRuleActiveWithReflection() → Boolean
         // 获取全局勿扰开关状态
