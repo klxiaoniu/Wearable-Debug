@@ -449,6 +449,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         DisableAd.interceptAd(loadPackageParam.classLoader);
         DisableAd.disableReport(loadPackageParam.classLoader);
         DisableAd.hideAqView(loadPackageParam.classLoader);
+        DisableAd.disableFaceEntranceConfig(loadPackageParam.classLoader);
 
         DisableKeepLinkNotify.disableDeviceSystemRedDot(loadPackageParam.classLoader);
         DisableKeepLinkNotify.disableTabRedDot(loadPackageParam.classLoader);

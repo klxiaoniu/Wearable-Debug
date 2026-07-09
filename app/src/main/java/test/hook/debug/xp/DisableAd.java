@@ -77,4 +77,43 @@ public class DisableAd {
             }
         });
     }
+
+    public static void disableFaceEntranceConfig(ClassLoader classLoader) {
+        // 红点
+        try {
+            XposedHelpers.findAndHookMethod("com.xiaomi.fitness.device.manager.ui.tab.DeviceFaceEntranceViewV4", classLoader, "showRedPoint", boolean.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    super.beforeHookedMethod(param);
+                    param.args[0] = false;
+                }
+            });
+        } catch (NoSuchMethodError | Exception e) {
+            Log.ex("Failed to disable face entrance red point", e);
+        }
+        // 标题、背景等云控
+        try {
+            XposedHelpers.findAndHookMethod("com.xiaomi.fitness.device.manager.ui.tab.DeviceFaceEntranceViewV4", classLoader, "setOperationConfig", classLoader.loadClass("com.xiaomi.fitness.watch.face.data.OperationConfig"), new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    super.beforeHookedMethod(param);
+                    param.args[0] = null;
+                }
+            });
+        } catch (NoSuchMethodError | Exception e) {
+            Log.ex("Failed to clear face entrance operation config", e);
+        }
+        // 最近上新 X 款
+        try {
+            XposedHelpers.findAndHookMethod("com.xiaomi.fitness.device.manager.ui.tab.DeviceFaceEntranceViewV4", classLoader, "setRecentOnlineCount", int.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    super.beforeHookedMethod(param);
+                    param.args[0] = 0;
+                }
+            });
+        } catch (NoSuchMethodError | Exception e) {
+            Log.ex("Failed to clear face entrance recent online count", e);
+        }
+    }
 }
