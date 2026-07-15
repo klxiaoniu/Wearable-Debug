@@ -3,13 +3,14 @@ package test.hook.debug.xp;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.app.AndroidAppHelper;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import android.net.Uri;
 import android.os.Build;
+import android.text.InputType;
+import android.view.Gravity;
 import android.widget.EditText;
 import android.widget.Toast;
 
@@ -133,6 +134,10 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                     text.setTextColor(context.getColor(android.R.color.primary_text_light));
                     text.setBackground(context.getDrawable(android.R.drawable.edit_text));
                     text.setHintTextColor(context.getColor(android.R.color.darker_gray));
+                    text.setInputType(InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+                    text.setGravity(Gravity.TOP);
+                    text.setSingleLine(false);
+                    text.setHorizontallyScrolling(false);
 
                     StringBuilder sb = new StringBuilder();
                     for (Map.Entry<String, String[]> entry : obj.entrySet()) {

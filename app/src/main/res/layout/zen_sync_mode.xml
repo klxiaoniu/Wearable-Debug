@@ -2,7 +2,8 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:paddingHorizontal="16dp">
 
     <RadioGroup
         android:layout_width="match_parent"
@@ -28,7 +29,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="适用于较旧手环ROM，需要勾选系统框架作用域" />
+            android:text="适用于较旧手环ROM，需要勾选系统框架作用域；定时勿扰需在手环上配置" />
 
         <RadioButton
             android:id="@+id/radio_new_sync"
@@ -39,7 +40,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="适用于最新手环ROM配合非小米手机，需要勾选系统框架作用域" />
+            android:text="适用于最新手环ROM配合非小米手机，需要勾选系统框架作用域；定时勿扰需在手机设置中配置" />
     </RadioGroup>
 
     <!--    <Button-->
