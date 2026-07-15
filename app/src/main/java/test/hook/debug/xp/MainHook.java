@@ -23,6 +23,7 @@ import com.github.kyuubiran.ezxhelper.finders.MethodFinder;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Locale;
@@ -84,8 +85,30 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         });
 
         view.addNode(Save.Type.WATCHFACE.getText(), v -> {
-            Save.status = Save.Type.WATCHFACE;
-            gotoDebugPage(loader, context);
+            AlertDialog.Builder dialog = new AlertDialog.Builder(context);
+            dialog.setTitle("表盘安装方案");
+            dialog.setPositiveButton("方案1", (dialog1, which) -> {
+                Save.status = Save.Type.WATCHFACE;
+                gotoDebugPage(loader, context);
+            });
+            dialog.setNegativeButton("方案2", (dialog1, which) -> {
+                try {
+                    Class<?> faceClz = loader.loadClass(
+                            "com.xiaomi.fitness.watch.face.debug.designer.FaceDesignerFragment");
+                    XposedHelpers.callStaticMethod(
+                            loader.loadClass(
+                                    "com.xiaomi.fitness.watch.face.ext.FaceExtKt"),
+                            "gotoPage",
+                            context,
+                            faceClz,
+                            null       // Bundle = null
+                    );
+                } catch (Throwable t) {
+                    Log.ex("gotoPage FaceDesignerFragment failed", t);
+                }
+            });
+            dialog.setNeutralButton("Cancel", null);
+            dialog.show();
             result.dismiss();
         });
 
@@ -372,6 +395,29 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             });
         } catch (NoSuchMethodError e) {
             Log.ex("OnePlus calendar import fix failed", e);
+        }
+
+        // FaceDesigner开关启用
+        try {
+            XposedHelpers.findAndHookMethod("com.xiaomi.fitness.watch.face.debug.designer.FaceDesignerFragment", classLoader, "onViewCreated", android.view.View.class, android.os.Bundle.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    super.afterHookedMethod(param);
+                    Object binding = XposedHelpers.callMethod(param.thisObject, "getMBinding");
+
+                    Class<?> targetClz = XposedHelpers.findClass("com.xiaomi.fitness.widget.SwitchButtonBindingTwoLineTextView", classLoader);
+                    for (Field field : binding.getClass().getFields()) {
+                        field.setAccessible(true);
+                        if (targetClz.isAssignableFrom(field.getType())) {
+                            field.setAccessible(true);
+                            Object view = field.get(binding);
+                            XposedHelpers.callMethod(view, "setEnable", true);
+                        }
+                    }
+                }
+            });
+        } catch (NoSuchMethodError | Exception e) {
+            Log.ex("FaceDesigner switch hook failed", e);
         }
     }
 
