@@ -19,7 +19,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="适用于安卓14及以下或App版本3.45.0/targetSdk34及以下或支持勿扰规则同步的最新HyperOS系统和手环ROM"
+            android:text="适用于安卓14及以下/App版本3.45.0(targetSdk34)及以下/支持勿扰规则同步的最新手环ROM配合HyperOS3.1及以上"
             android:textColor="@android:color/black" />
 
         <RadioButton

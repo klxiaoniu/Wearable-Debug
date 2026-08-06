@@ -15,7 +15,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Calendar;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XC_MethodReplacement;
@@ -111,38 +111,40 @@ public class ZenSync {
         }
         // ================================================================
         // Hook 4: updatePhoneZenRules(Context, boolean, long, List)
-        // 用 setInterruptionFilter 替代 HyperOS 隐藏 API
+        // 只在handleDeviceZenRule被调用，被hook后不调用，不用处理
         // ================================================================
-        try {
-            XposedHelpers.findAndHookMethod(CLS_ZEN_SYNC_HELPER, lpparam.classLoader,
-                    "updatePhoneZenRules",
-                    Context.class, boolean.class, long.class, List.class,
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            boolean manualState = (boolean) param.args[1];
-                            try {
-                                NotificationManager nm = (NotificationManager)
-                                        ((Context) param.args[0]).getSystemService(
-                                                Context.NOTIFICATION_SERVICE);
-                                nm.setInterruptionFilter(manualState
-                                        ? NotificationManager.INTERRUPTION_FILTER_PRIORITY
-                                        : NotificationManager.INTERRUPTION_FILTER_ALL);
-                                Log.dx("setInterruptionFilter: "
-                                        + (manualState ? "PRIORITY" : "ALL"));
-                            } catch (Throwable t) {
-                                Log.ex("updatePhoneZenRules error", t);
-                            }
-                            param.setResult(null);
-                        }
-                    });
-            Log.ix("✓ Hook 4: updatePhoneZenRules → setInterruptionFilter");
-        } catch (Throwable t) {
-            Log.ex("✗ Hook 4 failed", t);
-        }
+//        try {
+//            XposedHelpers.findAndHookMethod(CLS_ZEN_SYNC_HELPER, lpparam.classLoader,
+//                    "updatePhoneZenRules",
+//                    Context.class, boolean.class, long.class, List.class,
+//                    new XC_MethodHook() {
+//                        @Override
+//                        protected void beforeHookedMethod(MethodHookParam param) {
+//                            boolean manualState = (boolean) param.args[1];
+//                            List<Object> rules = (List<Object>) param.args[3];
+//                            Log.dx("updatePhoneZenRules: manualState = " + manualState + " rules = " + rules);
+//                            try {
+//                                NotificationManager nm = (NotificationManager)
+//                                        ((Context) param.args[0]).getSystemService(
+//                                                Context.NOTIFICATION_SERVICE);
+//                                nm.setInterruptionFilter(manualState
+//                                        ? NotificationManager.INTERRUPTION_FILTER_PRIORITY
+//                                        : NotificationManager.INTERRUPTION_FILTER_ALL);
+//                                Log.dx("setInterruptionFilter: "
+//                                        + (manualState ? "PRIORITY" : "ALL"));
+//                            } catch (Throwable t) {
+//                                Log.ex("updatePhoneZenRules error", t);
+//                            }
+//                            param.setResult(null);
+//                        }
+//                    });
+//            Log.ix("✓ Hook 4: updatePhoneZenRules → setInterruptionFilter");
+//        } catch (Throwable t) {
+//            Log.ex("✗ Hook 4 failed", t);
+//        }
         // ================================================================
         // Hook 5: handleDeviceZenRule(Context, mnq$a)
-        // 只处理手动规则（isManual=true），忽略自动规则
+        // 解析规则确定是否开启勿扰
         // ================================================================
         try {
 //            Lcom/xiaomi/fitness/devicesettings/common/zenmode/ZenModeSyncHelper;->getMiuiZenRules(Landroid/content/Context;)Ljava/util/List;
@@ -202,28 +204,82 @@ public class ZenSync {
                                         param.setResult(null);
                                         return;
                                     }
-                                    for (Object rule : rules) {
-                                        if (rule == null) continue;
-                                        // 只关心手动规则
-                                        Field isManualField = rule.getClass()
-                                                .getDeclaredField("c");
-                                        isManualField.setAccessible(true);
-                                        if (!isManualField.getBoolean(rule)) continue;
-                                        // 读取状态: f92165e (int)
-                                        Field stateField = rule.getClass()
-                                                .getDeclaredField("e");
-                                        stateField.setAccessible(true);
-                                        int state = stateField.getInt(rule);
-                                        // 设置系统勿扰
-                                        NotificationManager nm = (NotificationManager)
-                                                ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-                                        nm.setInterruptionFilter(state == 1
-                                                ? NotificationManager.INTERRUPTION_FILTER_PRIORITY
-                                                : NotificationManager.INTERRUPTION_FILTER_ALL);
-                                        Log.dx("Device→Phone: DND "
-                                                + (state == 1 ? "ON" : "OFF"));
-                                        break; // 只处理第一个手动规则
+                                    NotificationManager nm = (NotificationManager)
+                                            ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+
+                                    boolean hasActiveManualRule = false;   // 是否有生效的手动规则
+                                    boolean hasActiveAutoRule = false;     // 是否有生效的自动规则
+
+                                    for (Object ruleObj : rules) {
+                                        if (ruleObj == null) continue;
+
+                                        Rule rule = new Rule(ruleObj);
+                                        Log.dx(rule.toString());
+                                        boolean isToday = isTodayInRepeatMask(rule.condition.repeatDaysMask);
+
+                                        // 1. 判断规则是否有效：规则必须启用 且 今天在重复周期内
+                                        boolean isRuleEnabled = rule.state == 1 && rule.conditionOverride != 2 && isToday;
+
+                                        if (!isRuleEnabled) {
+                                            continue; // 规则无效，跳过
+                                        }
+
+                                        // 2. 判断当前时间是否在生效时间段内
+                                        // 不是空Condition
+                                        if (!(rule.condition.start.hour == 0 && rule.condition.start.minute == 0 && rule.condition.end.hour == 0 && rule.condition.end.minute == 0)) {
+                                            int currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+                                            int currentMinute = Calendar.getInstance().get(Calendar.MINUTE);
+                                            int currentTotalMinutes = currentHour * 60 + currentMinute;
+                                            int startTotalMinutes = rule.condition.start.hour * 60 + rule.condition.start.minute;
+                                            int endTotalMinutes = rule.condition.end.hour * 60 + rule.condition.end.minute;
+
+                                            // 处理跨天情况 (例如 22:00 - 06:00)
+                                            boolean isInTimeRange;
+                                            if (startTotalMinutes < endTotalMinutes) {
+                                                // 不跨天
+                                                isInTimeRange = (currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes);
+                                            } else {
+                                                // 跨天
+                                                isInTimeRange = (currentTotalMinutes >= startTotalMinutes || currentTotalMinutes < endTotalMinutes);
+                                            }
+
+                                            if (!isInTimeRange) {
+                                                continue; // 不在时间段内，跳过
+                                            }
+                                        }
+
+                                        // 3. 根据规则类型进行分类统计
+                                        if (rule.isManual) {
+                                            // 手动规则：只要有一条生效，最终结果就是开启DND
+                                            hasActiveManualRule = true;
+                                            // 手动规则优先级最高，可以提前跳出循环
+                                            break;
+                                        } else {
+                                            // 自动规则：标记存在生效的自动规则
+                                            hasActiveAutoRule = true;
+                                            // 如果有多个自动规则同时生效，系统会选择一个应用
+                                        }
                                     }
+
+                                    // ----- 循环结束后，得出最终决策 -----
+                                    boolean finalDNDState;
+                                    if (hasActiveManualRule) {
+                                        // 任何手动规则生效 → 开启DND
+                                        finalDNDState = true;
+                                    } else if (hasActiveAutoRule) {
+                                        // 没有任何手动规则，但有自动规则生效 → 开启DND
+                                        finalDNDState = true;
+                                    } else {
+                                        // 没有任何规则生效 → 关闭DND
+                                        finalDNDState = false;
+                                    }
+
+                                    nm.setInterruptionFilter(finalDNDState
+                                            ? NotificationManager.INTERRUPTION_FILTER_PRIORITY
+                                            : NotificationManager.INTERRUPTION_FILTER_ALL);
+                                    Log.dx("Device→Phone: DND "
+                                            + (finalDNDState ? "ON" : "OFF"));
+
                                 } catch (Throwable t) {
                                     Log.ex("handleDeviceZenRule error", t);
                                 }
@@ -302,33 +358,6 @@ public class ZenSync {
             Log.ex("✗ Hook 7 failed", t);
         }
         Log.ix("=== All hooks done ===");
-
-
-//        XposedHelpers.findAndHookMethod("com.xiaomi.fitness.devicesettings.common.zenmode.ZenModeSyncHelper$syncZenRule$1", lpparam.classLoader, "onError", "java.lang.String", int.class, int.class, new XC_MethodHook() {
-//            @Override
-//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-//                super.beforeHookedMethod(param);
-//                String code = (String) param.args[0];
-//                int type = (int) param.args[1];
-//                int did = (int) param.args[2];
-//                Log.ex("syncZenRule: onError: code = " + code + " type = " + type + " did = " + did);
-//            }
-//        });
-//        XposedHelpers.findAndHookMethod("com.xiaomi.fitness.devicesettings.common.zenmode.ZenModeSyncHelper$syncZenRule$1", lpparam.classLoader, "onSuccess", "java.lang.String", int.class, "com.xiaomi.fitness.device.contact.export.SyncResult", new XC_MethodHook() {
-//            @Override
-//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-//                super.beforeHookedMethod(param);
-//                // String did, int type, SyncResult result
-//                String did = (String) param.args[0];
-//                int type = (int) param.args[1];
-//                Object result = param.args[2];
-//                Log.dx("syncZenRule: onSuccess: did = " + did + " type = " + type + " result = " + result);
-//            }
-//            @Override
-//            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-//                super.afterHookedMethod(param);
-//            }
-//        });
     }
 
     // ==================== 辅助方法 ====================
@@ -341,5 +370,123 @@ public class ZenSync {
         } catch (Throwable t) {
             return null;
         }
+    }
+
+    private static String getStringField(Object obj, String fieldName) {
+        try {
+            Field f = obj.getClass().getDeclaredField(fieldName);
+            f.setAccessible(true);
+            Object val = f.get(obj);
+            return val instanceof String ? (String) val : null;
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /**
+     * 判断今天是否在 repeatDaysMask 中
+     *
+     * @param repeatDaysMask 位掩码，例：工作日 周一~周五 = 31，每天 = 127
+     * @return true=今天需要重复，false=今天不重复
+     */
+    public static boolean isTodayInRepeatMask(int repeatDaysMask) {
+        if (repeatDaysMask == 0) return true;
+        int dayOfWeek = Calendar.getInstance().get(Calendar.DAY_OF_WEEK); // 1=周日 ... 7=周六
+        // 将 Calendar 的星期几转换为掩码位
+        int maskBit;
+        if (dayOfWeek == Calendar.SUNDAY) {
+            maskBit = 1 << 6;   // 64
+        } else {
+            maskBit = 1 << (dayOfWeek - Calendar.MONDAY);
+            // Monday=2 -> 1<<0 = 1
+            // Tuesday=3 -> 1<<1 = 2
+            // Wednesday=4 -> 1<<2 = 4
+            // Thursday=5 -> 1<<3 = 8
+            // Friday=6 -> 1<<4 = 16
+            // Saturday=7 -> 1<<5 = 32
+        }
+        return (repeatDaysMask & maskBit) != 0;
+    }
+
+    /**
+     * 规则pb解析类，取值含义仅供参考
+     */
+    static class Rule {
+        boolean isManual;
+        String name;
+        /**
+         * 0-未知，1-已激活，2-未激活
+         */
+        int state;
+        /**
+         * 0-无覆盖，1-强制启用，2-强制停用
+         */
+        int conditionOverride;
+        int lastActivationTime;
+        /**
+         * 规则生效时间段，环9全为0
+         */
+        Condition condition;
+
+        @Override
+        public String toString() {
+            return "Rule{" +
+                    "isManual=" + isManual +
+                    ", name='" + name + '\'' +
+                    ", state=" + state +
+                    ", conditionOverride=" + conditionOverride +
+                    ", lastActivationTime=" + lastActivationTime +
+                    ", condition=" + condition +
+                    '}';
+        }
+
+        static class Condition {
+            Time start;
+            Time end;
+            int repeatDaysMask;
+
+            @Override
+            public String toString() {
+                return "Condition{" +
+                        "start=" + start +
+                        ", end=" + end +
+                        ", repeatDaysMask=" + repeatDaysMask +
+                        '}';
+            }
+
+            static class Time {
+                int hour;
+                int minute;
+
+                Time(Object time) {
+                    hour = XposedHelpers.getIntField(time, "c");
+                    minute = XposedHelpers.getIntField(time, "d");
+                }
+
+                @Override
+                public String toString() {
+                    return "Time{" +
+                            "hour=" + hour +
+                            ", minute=" + minute +
+                            '}';
+                }
+            }
+
+            Condition(Object condition) {
+                start = new Time(XposedHelpers.getObjectField(condition, "c"));
+                end = new Time(XposedHelpers.getObjectField(condition, "d"));
+                repeatDaysMask = XposedHelpers.getIntField(condition, "e");
+            }
+        }
+
+        Rule(Object rule) {
+            isManual = XposedHelpers.getBooleanField(rule, "c");
+            name = getStringField(rule, "d");
+            state = XposedHelpers.getIntField(rule, "e");
+            conditionOverride = XposedHelpers.getIntField(rule, "f");
+            lastActivationTime = XposedHelpers.getIntField(rule, "g");
+            condition = new Condition(XposedHelpers.getObjectField(rule, "h"));
+        }
+
     }
 }
