@@ -215,7 +215,10 @@ public class ZenSync {
 
                                         Rule rule = new Rule(ruleObj);
                                         Log.dx(rule.toString());
-                                        boolean isToday = isTodayInRepeatMask(rule.condition.repeatDaysMask);
+                                        boolean isToday = true;
+                                        if (rule.condition != null) {
+                                            isToday = isTodayInRepeatMask(rule.condition.repeatDaysMask);
+                                        }
 
                                         // 1. 判断规则是否有效：规则必须启用 且 今天在重复周期内
                                         boolean isRuleEnabled = rule.state == 1 && rule.conditionOverride != 2 && isToday;
@@ -226,7 +229,7 @@ public class ZenSync {
 
                                         // 2. 判断当前时间是否在生效时间段内
                                         // 不是空Condition
-                                        if (!(rule.condition.start.hour == 0 && rule.condition.start.minute == 0 && rule.condition.end.hour == 0 && rule.condition.end.minute == 0)) {
+                                        if (rule.condition != null) {
                                             int currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
                                             int currentMinute = Calendar.getInstance().get(Calendar.MINUTE);
                                             int currentTotalMinutes = currentHour * 60 + currentMinute;
@@ -424,7 +427,7 @@ public class ZenSync {
         int conditionOverride;
         int lastActivationTime;
         /**
-         * 规则生效时间段，环9全为0
+         * 规则生效时间段，环9为null
          */
         Condition condition;
 
@@ -485,7 +488,12 @@ public class ZenSync {
             state = XposedHelpers.getIntField(rule, "e");
             conditionOverride = XposedHelpers.getIntField(rule, "f");
             lastActivationTime = XposedHelpers.getIntField(rule, "g");
-            condition = new Condition(XposedHelpers.getObjectField(rule, "h"));
+            Object conditionObj = XposedHelpers.getObjectField(rule, "h");
+            if (conditionObj == null) {
+                condition = null;
+            } else {
+                condition = new Condition(conditionObj);
+            }
         }
 
     }
