@@ -1,6 +1,7 @@
 package test.hook.debug.xp;
 
 import android.view.View;
+import android.widget.FrameLayout;
 
 import com.github.kyuubiran.ezxhelper.ClassUtils;
 import com.github.kyuubiran.ezxhelper.HookFactory;
@@ -70,7 +71,9 @@ public class DisableAd {
                 super.beforeHookedMethod(param);
                 View view = (View) param.args[0];
                 Class<?> clazz = view.getClass();
-                if (clazz.equals(finalAqViewClass) || clazz.equals(finalHealthBannerCardSetViewClass)) {
+                if (clazz.equals(finalAqViewClass)
+                        || clazz.equals(FrameLayout.class) && ((FrameLayout) view).getChildCount() > 0 && ((FrameLayout) view).getChildAt(0).getClass().equals(finalAqViewClass) //  3.58.0套了一层
+                        || clazz.equals(finalHealthBannerCardSetViewClass)) {
                     param.setResult(null);
                     view.setVisibility(View.GONE);
                 }
