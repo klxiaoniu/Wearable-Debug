@@ -35,6 +35,8 @@ public class ZenSync {
 
     public static ZenSync INSTANCE = new ZenSync();
 
+    private static long lastSyncTimeStamp = 0;
+
     public void hook(XC_LoadPackage.LoadPackageParam lpparam) {
         Log.ix("=== ZenMode Hook Start ===");
 
@@ -188,6 +190,11 @@ public class ZenSync {
                         new XC_MethodHook() {
                             @Override
                             protected void beforeHookedMethod(MethodHookParam param) {
+                                if (System.currentTimeMillis() - lastSyncTimeStamp < 1000) {
+                                    Log.dx("handleDeviceZenRule: skip sync");
+                                    return;
+                                }
+                                lastSyncTimeStamp = System.currentTimeMillis();
                                 Context ctx = (Context) param.args[0];
                                 Object ruleList = param.args[1];
                                 if (ctx == null || ruleList == null) {
@@ -334,6 +341,11 @@ public class ZenSync {
                                         new Handler(Looper.getMainLooper())) {
                                     @Override
                                     public void onChange(boolean selfChange) {
+                                        if (System.currentTimeMillis() - lastSyncTimeStamp < 1000) {
+                                            Log.dx("zen_mode changed: skip sync");
+                                            return;
+                                        }
+                                        lastSyncTimeStamp = System.currentTimeMillis();
                                         Log.dx("zen_mode changed → sync to device");
                                         try {
                                             Method m = instance.getClass()
