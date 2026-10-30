@@ -5,10 +5,13 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.res.Resources;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.view.Gravity;
 import android.widget.EditText;
@@ -26,14 +29,16 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 import de.robv.android.xposed.IXposedHookInitPackageResources;
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XC_MethodReplacement;
 import de.robv.android.xposed.XSharedPreferences;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
@@ -43,24 +48,18 @@ import test.hook.debug.xp.ui.DialogView;
 import test.hook.debug.xp.ui.ZenSyncModeView;
 import test.hook.debug.xp.utils.DexKit;
 import test.hook.debug.xp.utils.Save;
-import test.hook.debug.xp.utils.SignUtils;
 
 public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageResources, IXposedHookZygoteInit {
+    /**
+     * 模块内部文件选择请求码
+     */
+    private static final int REQUEST_PICK_FILE = 0x5A11;
+    /**
+     * 已 Hook 的 onActivityResult 方法，避免重复 Hook
+     */
+    private static final Set<Method> HOOKED_ACTIVITY_RESULT = Collections.newSetFromMap(new WeakHashMap<Method, Boolean>());
+
     public MainHook() {
-    }
-
-    private static void gotoDebugPage(ClassLoader classLoader, Context activity) {
-        try {
-            Class<?> xmsManager = XposedHelpers.findClass("com.xms.wearable.export.XmsManager", classLoader);
-            Object companionObj = XposedHelpers.getStaticObjectField(xmsManager, "Companion");
-
-            Class<?> xmsManagerExtKt = XposedHelpers.findClass("com.xms.wearable.export.XmsManagerExtKt", classLoader);
-            Object instance = XposedHelpers.callStaticMethod(xmsManagerExtKt, "getInstance", new Class<?>[]{XposedHelpers.findClass("com.xms.wearable.export.XmsManager$Companion", classLoader)}, companionObj);
-
-            XposedHelpers.callMethod(instance, "gotoDebugPage", new Class<?>[]{Activity.class}, activity);
-        } catch (Throwable e) {
-            Log.ex(e, "gotoDebugPage");
-        }
     }
 
     private static AlertDialog.Builder createWarningDialog(Context context) {
@@ -79,9 +78,8 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         AlertDialog result = builder.create();
 
         view.addNode(Save.Type.APP.getText(), v -> {
-            Save.status = Save.Type.APP;
-            gotoDebugPage(loader, context);
             result.dismiss();
+            showAppDialog(loader, context);
         });
 
         view.addNode(Save.Type.WATCHFACE.getText(), v -> {
@@ -89,7 +87,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             dialog.setTitle("表盘安装方案");
             dialog.setPositiveButton("方案1", (dialog1, which) -> {
                 Save.status = Save.Type.WATCHFACE;
-                gotoDebugPage(loader, context);
+                startPickFile(context);
             });
             dialog.setNegativeButton("方案2", (dialog1, which) -> {
                 try {
@@ -116,7 +114,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             AlertDialog.Builder warningDialog = createWarningDialog(context);
             warningDialog.setPositiveButton("OK", (dialog, which) -> {
                 Save.status = Save.Type.FIRMWARE;
-                gotoDebugPage(loader, context);
+                startPickFile(context);
             });
             warningDialog.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
             warningDialog.show();
@@ -207,35 +205,173 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
     }
 
     /**
-     * 处理应用安装
+     * 应用安装/卸载对话框
+     *
+     * 安装直接选择应用文件，包名从文件中读取；卸载需要输入包名。
      */
-    private static void onHandleApp(Object thisObj, Intent intent) {
-        XposedHelpers.callMethod(thisObj, "prepareInstall",
-                new Class<?>[]{String.class, Intent.class}, "thirdapp.rpk", intent);
+    private static void showAppDialog(ClassLoader loader, Context context) {
+        EditText input = new EditText(context);
+        input.setTextColor(context.getColor(android.R.color.primary_text_light));
+        input.setBackground(context.getDrawable(android.R.drawable.edit_text));
+        input.setHintTextColor(context.getColor(android.R.color.darker_gray));
+        input.setSingleLine(true);
+        input.setHint("com.example.app");
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setTitle("App");
+        builder.setMessage("请输入应用包名（安装时无需输入）");
+        builder.setView(input);
+        builder.setPositiveButton("安装", (dialog, which) -> {
+            Save.status = Save.Type.APP;
+            startPickFile(context);
+        });
+        builder.setNegativeButton("卸载", (dialog, which) -> {
+            String pkgName = input.getText().toString().trim();
+            if (pkgName.isEmpty()) {
+                Toast.makeText(context, "请先输入包名", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Install.unInstallApp(loader, context, pkgName);
+        });
+        builder.setNeutralButton("Cancel", null);
+        builder.show();
     }
 
     /**
-     * 处理表盘安装
+     * 调起系统文件选择器，结果在 onActivityResult 中处理
      */
-    private static boolean onHandleWatchFace(ClassLoader loader, Context context, Uri data) throws Throwable {
-        File tmpFace = Install.saveTmpFile(context, data);
-        if (tmpFace == null) {
-            return false;
+    private static void startPickFile(Context context) {
+        Activity activity = resolveActivity(context);
+        if (activity == null) {
+            Toast.makeText(context, "无法打开文件选择器", Toast.LENGTH_LONG).show();
+            return;
         }
-        Install.installWatchFace(loader, tmpFace, context);
-        return true;
+        try {
+            hookOnActivityResult(activity.getClass());
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            activity.startActivityForResult(Intent.createChooser(intent, "选择文件"), REQUEST_PICK_FILE);
+        } catch (Throwable e) {
+            Log.ex(e, "startPickFile");
+            Toast.makeText(context, "无法打开文件选择器: " + e, Toast.LENGTH_LONG).show();
+        }
     }
 
     /**
-     * 处理固件安装
+     * 从上下文链中取出 Activity，取不到时回退到栈顶 Activity
      */
-    private static boolean onHandleFirmware(ClassLoader loader, Context context, Uri data) throws Throwable {
-        File tmpFace = Install.saveTmpFile(context, data);
-        if (tmpFace == null) {
-            return false;
+    private static Activity resolveActivity(Context context) {
+        Context current = context;
+        while (current instanceof ContextWrapper) {
+            if (current instanceof Activity) {
+                Activity activity = (Activity) current;
+                if (!activity.isFinishing() && !activity.isDestroyed()) {
+                    return activity;
+                }
+                break;
+            }
+            current = ((ContextWrapper) current).getBaseContext();
         }
-        Install.invokeUpdate(loader, context, tmpFace.getAbsolutePath());
-        return true;
+        return getTopActivity();
+    }
+
+    /**
+     * 通过 ActivityThread 获取栈顶 Activity
+     */
+    private static Activity getTopActivity() {
+        try {
+            @SuppressLint("PrivateApi") Class<?> activityThreadClass = Class.forName("android.app.ActivityThread");
+            Object activityThread = XposedHelpers.callStaticMethod(activityThreadClass, "currentActivityThread");
+            Map<?, ?> activities = (Map<?, ?>) XposedHelpers.getObjectField(activityThread, "mActivities");
+            for (Object record : activities.values()) {
+                if (XposedHelpers.getBooleanField(record, "paused")) {
+                    continue;
+                }
+                Object activity = XposedHelpers.getObjectField(record, "activity");
+                if (activity instanceof Activity) {
+                    return (Activity) activity;
+                }
+            }
+        } catch (Throwable e) {
+            Log.ex(e, "getTopActivity");
+        }
+        return null;
+    }
+
+    /**
+     * Hook 目标 Activity 的 onActivityResult（取继承链上最先声明的方法，避免重复回调）
+     */
+    private static synchronized void hookOnActivityResult(Class<?> activityClass) {
+        for (Class<?> clazz = activityClass; clazz != null && clazz != Object.class; clazz = clazz.getSuperclass()) {
+            Method method;
+            try {
+                method = clazz.getDeclaredMethod("onActivityResult", int.class, int.class, Intent.class);
+            } catch (NoSuchMethodException e) {
+                continue;
+            }
+            if (!HOOKED_ACTIVITY_RESULT.add(method)) {
+                return;
+            }
+            XposedBridge.hookMethod(method, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if ((int) param.args[0] != REQUEST_PICK_FILE) {
+                        return;
+                    }
+                    onPickedActivityResult((Activity) param.thisObject, (int) param.args[1], (Intent) param.args[2]);
+                }
+            });
+            return;
+        }
+    }
+
+    /**
+     * 处理文件选择结果，按当前安装模式分发
+     */
+    private static void onPickedActivityResult(Activity activity, int resultCode, Intent data) {
+        if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+            return;
+        }
+        try {
+            Uri uri = data.getData();
+            ClassLoader loader = EzXHelper.getSafeClassLoader();
+            File file = Install.saveTmpFile(activity, uri, queryDisplayName(activity, uri));
+            if (file == null) {
+                Toast.makeText(activity, "读取文件失败", Toast.LENGTH_LONG).show();
+                return;
+            }
+            switch (Save.status) {
+                case APP:
+                    Install.installApp(loader, activity, file);
+                    break;
+                case WATCHFACE:
+                    Install.installWatchFace(loader, file, activity);
+                    break;
+                case FIRMWARE:
+                    Install.invokeUpdate(loader, activity, file.getAbsolutePath());
+                    break;
+                default:
+                    break;
+            }
+        } catch (Throwable e) {
+            Log.ex(e, "onPickedActivityResult");
+            Toast.makeText(activity, "处理文件失败: " + e, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /**
+     * 查询文件选择结果的文件名
+     */
+    private static String queryDisplayName(Context context, Uri uri) {
+        try (Cursor cursor = context.getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) {
+                return cursor.getString(0);
+            }
+        } catch (Throwable e) {
+            Log.ex(e, "queryDisplayName");
+        }
+        return null;
     }
 
     @SuppressLint("DiscouragedApi")
@@ -244,12 +380,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         Class<?> clazzAboutActivity = ClassUtils.loadClass("com.xiaomi.fitness.about.AboutActivity", null);
         Method methodOnCreate = MethodFinder.fromClass(clazzAboutActivity).filterByName("onCreate").first();
         HookFactory.createMethodHook(methodOnCreate, hookFactory -> hookFactory.before(param -> EzXHelper.initAppContext((Activity) param.thisObject, false)));
-
-        Class<?> thirdAppDebugFragment = XposedHelpers.findClass("com.xiaomi.xms.wearable.ui.debug.ThirdAppDebugFragment", classLoader);
-        if (thirdAppDebugFragment == null) {
-            Log.ex("ThirdAppDebugFragment not found", null);
-            return;
-        }
 
         Method methodStartWebView = EntryPoint.findEntryPoint();
         if (methodStartWebView == null) {
@@ -276,81 +406,8 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             // 弹出选择当前安装模式
             Dialog dialog = createSelectDialog(loader, appContext);
             dialog.show();
-
-            // 设置当前模式显示
-            Method bindView = MethodFinder.fromClass(thirdAppDebugFragment).filterByName("bindView").firstOrNull();
-            if (bindView != null) {
-                HookFactory.createMethodHook(bindView, hookFactory1 -> hookFactory1.after(methodHookParam ->
-                        XposedHelpers.callMethod(methodHookParam.thisObject, "setTitle",
-                                new Class[]{String.class}, Save.status.getText())));
-            }
-
-
-            // 拦截文件选择
-            XposedHelpers.findAndHookMethod(thirdAppDebugFragment, "onActivityResult", int.class, int.class, Intent.class, new XC_MethodReplacement() {
-                @Override
-                protected Object replaceHookedMethod(MethodHookParam param) throws Throwable {
-                    if (((int) param.args[0]) != 10 || ((int) param.args[1]) != -1) {
-                        return null;
-                    }
-                    Intent arg = (Intent) param.args[2];
-                    Uri data = arg.getData();
-                    if (data == null) {
-                        return null;
-                    }
-
-                    Context context = (Context) XposedHelpers.callMethod(param.thisObject, "getMActivity");
-
-                    switch (Save.status) {
-                        case APP:
-                            onHandleApp(param.thisObject, arg);
-                            break;
-                        case WATCHFACE:
-                            if (!onHandleWatchFace(loader, context, data)) {
-                                Toast.makeText(context, appResources.getString(Res.fail_watchface), Toast.LENGTH_LONG).show();
-                            }
-                            break;
-                        case FIRMWARE:
-                            if (!onHandleFirmware(loader, context, data)) {
-                                Toast.makeText(context, appResources.getString(Res.fail_firmware), Toast.LENGTH_LONG).show();
-                            }
-                            break;
-                        default:
-                            throw new IllegalStateException("Unexpected value: " + Save.status);
-                    }
-
-                    return null;
-                }
-            });
             param.setResult(null);
         }));
-
-        XposedHelpers.findAndHookMethod(thirdAppDebugFragment, "unInstallApp", new XC_MethodReplacement() {
-            @Override
-            protected Object replaceHookedMethod(MethodHookParam methodHookParam) throws Throwable {
-                return Install.unInstall(classLoader, methodHookParam.thisObject);
-            }
-        });
-
-        XposedHelpers.findAndHookMethod(thirdAppDebugFragment, "sendThirdAppFile", File.class, int.class, new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                super.beforeHookedMethod(param);
-                Save.sign = SignUtils.generateSign((File) param.args[0]);
-            }
-        });
-
-        // 安装表盘时不限制包名
-        XposedHelpers.findAndHookMethod(thirdAppDebugFragment, "isPackageReady", new XC_MethodHook() {
-            @Override
-            protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                super.afterHookedMethod(param);
-                if (Save.status == Save.Type.APP) {
-                    return;
-                }
-                param.setResult(true);
-            }
-        });
 
         // 微信通话6s强提醒
         XposedHelpers.findAndHookMethod("com.xiaomi.fitness.notify.util.NotificationFilterHelper", classLoader, "isWeChatIncomingCall", "android.service.notification.StatusBarNotification", "java.lang.String", "java.lang.String", new XC_MethodHook() {

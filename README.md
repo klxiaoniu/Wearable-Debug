@@ -6,23 +6,23 @@ Xposed插件启用Mi Fitness第三方小程序安装卸载，表盘安装，固�
 
 ## 注意
 
-当前代码仅**手环9**在**小米运动健康3.57.0**测试正常，其他版本、国际版理论也可使用。
+当前代码仅**手环11NFC**在**小米运动健康3.60.1**测试正常，其他版本、国际版理论也可使用。
 
 ## 使用
 
 ### 表盘安装
 
-点击Profile->About this app->User Agreement后在弹窗中选择WatchFace。不需要输入包名，点击install third app选择表盘文件。等待安装完成。
+点击Profile->About this app->User Agreement后在弹窗中选择WatchFace。方案1直接选择表盘文件安装；方案2跳转App自带的表盘设计器页面。等待安装完成。
 
 ### 固件安装
 
 **注意该功能可能导致设备变砖，请谨慎使用**
 
-点击Profile->About this app->User Agreement后在弹窗中选择Firmware。不需要输入包名，点击install third app选择固件文件。在更新页面点击Download。
+点击Profile->About this app->User Agreement后在弹窗中选择Firmware。确认警告后选择固件文件。在更新页面点击Download。
 
 ### 小程序安装
 
-点击Profile->About this app->User Agreement后在弹窗中选择App。先输入包名后点击install third app选择小程序文件，安装时可以随便输入包名。仅卸载时需要完整包名。
+点击Profile->About this app->User Agreement后在弹窗中选择App。点击安装后直接选择小程序文件，包名自动从文件中读取；卸载需要输入完整包名后点击卸载。
 
 ### 日志拉取
 
