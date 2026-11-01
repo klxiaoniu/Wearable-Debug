@@ -493,69 +493,63 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         // 如果要判断是不是支持小米专属勿扰同步的系统版本，可调用：
         // Lcom/xiaomi/fitness/devicesettings/common/zenmode/ZenModeSyncHelper;->isSupportZenRuleSync(Landroid/content/Context;)Z
         try {
-            Log.ix("搜索 SystemServer 的匿名内部类...", null);
-            boolean isHooked = false;
+            Log.ix("搜索 setInterruptionFilter...", null);
 
-            for (int i = 1; i <= 25; i++) {
-                String className = "com.android.server.notification.NotificationManagerService$" + i;
+            Class<?> nmsClass = XposedHelpers.findClass("com.android.server.notification.NotificationManagerService", classLoader);
 
-                Class<?> innerClass = XposedHelpers.findClassIfExists(className, classLoader);
+            java.lang.reflect.Field binderServiceField = XposedHelpers.findFieldIfExists(nmsClass, "mService");
 
-                if (innerClass == null) {
-                    break;
-                }
-                try {
-                    java.lang.reflect.Method method = innerClass.getDeclaredMethod(
-                            "setInterruptionFilter",
-                            String.class,
-                            int.class,
-                            boolean.class
-                    );
-
-                    Log.ix("找到目标匿名类: " + className, null);
-
-                    // 找到后直接Hook
-                    XposedBridge.hookMethod(method, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            String pkg = (String) param.args[0];
-
-                            if ("com.xiaomi.wearable".equals(pkg) || "com.mi.health".equals(pkg)) {
-                                // 提权：切换为 System UID (1000)
-                                long token = android.os.Binder.clearCallingIdentity();
-                                param.setObjectExtra("binder_token", token);
-
-                                // 伪装：将包名强制篡改为 android
-                                param.args[0] = "android";
-                                Log.ix("SystemServer: 匹配到小米运动健康，已执行UID提权并伪装包名", null);
-                            }
-                        }
-
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            Object tokenObj = param.getObjectExtra("binder_token");
-                            if (tokenObj != null) {
-                                // 恢复UID身份
-                                android.os.Binder.restoreCallingIdentity((long) tokenObj);
-                            }
-                        }
-                    });
-
-                    isHooked = true;
-                    Log.ix("SystemServer: 匿名内部类 Hook 注入成功", null);
-                    break; // 命中目标后直接跳出循环，结束穷举
-
-                } catch (NoSuchMethodException e) {
-                    // 当前编号的匿名类不是我们要找的那个（比如它没有这个三参数方法），继续找下一个
-                }
+            if (binderServiceField == null) {
+                Log.ex("未找到 mService 字段", null);
+                return;
             }
 
-            if (!isHooked) {
+            Class<?> binderServiceClass = binderServiceField.getType();
+
+            try {
+                java.lang.reflect.Method method = binderServiceClass.getDeclaredMethod(
+                        "setInterruptionFilter",
+                        String.class,
+                        int.class,
+                        boolean.class
+                );
+
+                // 找到后直接Hook
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        String pkg = (String) param.args[0];
+
+                        if ("com.xiaomi.wearable".equals(pkg) || "com.mi.health".equals(pkg)) {
+                            // 提权：切换为 System UID (1000)
+                            long token = android.os.Binder.clearCallingIdentity();
+                            param.setObjectExtra("binder_token", token);
+
+                            // 伪装：将包名强制篡改为 android
+                            param.args[0] = "android";
+                            Log.ix("SystemServer: 匹配到小米运动健康，已执行UID提权并伪装包名", null);
+                        }
+                    }
+
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        Object tokenObj = param.getObjectExtra("binder_token");
+                        if (tokenObj != null) {
+                            // 恢复UID身份
+                            android.os.Binder.restoreCallingIdentity((long) tokenObj);
+                        }
+                    }
+                });
+
+                Log.ix("SystemServer Hook 注入成功", null);
+
+            } catch (NoSuchMethodException e) {
                 Log.ex("查找setInterruptionFilter方法失败", null);
+
             }
 
         } catch (Throwable t) {
-            Log.ex("SystemServer穷举Hook异常: ", t);
+            Log.ex("SystemServer Hook异常: ", t);
         }
     }
 
@@ -584,6 +578,8 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam loadPackageParam) throws ClassNotFoundException {
         String packageName = loadPackageParam.packageName;
+        EzXHelper.setLogTag("WearableDebug");
+        EzXHelper.setToastTag("WearableDebug");
         if ("android".equals(packageName) || "android".equals(loadPackageParam.processName)) {
             loadHookForApi35Zen(loadPackageParam.classLoader);
             return;
@@ -592,8 +588,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             return;
         }
         EzXHelper.initHandleLoadPackage(loadPackageParam);
-        EzXHelper.setLogTag("WearableDebug");
-        EzXHelper.setToastTag("WearableDebug");
         DexKit.INSTANCE.initDexKit(loadPackageParam);
         DisableAd.interceptAd(loadPackageParam.classLoader);
         DisableAd.disableReport(loadPackageParam.classLoader);
