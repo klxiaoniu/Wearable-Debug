@@ -28,7 +28,7 @@ android {
     defaultConfig {
         applicationId = "test.hook.debug"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = gitCommitCount
         versionName = gitCommitHash
         ndk {

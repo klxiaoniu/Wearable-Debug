@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import de.robv.android.xposed.IXposedHookInitPackageResources;
 import de.robv.android.xposed.IXposedHookLoadPackage;
@@ -206,7 +207,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
 
     /**
      * 应用安装/卸载对话框
-     *
+     * <p>
      * 安装直接选择应用文件，包名从文件中读取；卸载需要输入包名。
      */
     private static void showAppDialog(ClassLoader loader, Context context) {
@@ -478,6 +479,8 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         }
     }
 
+    private static final AtomicBoolean sHooked = new AtomicBoolean(false);
+
     /**
      * setInterruptionFilter调用方为小米运动健康时，伪装为系统，实现全局开关
      * 通知栏可能会显示为 “Android 系统”已开启免打扰
@@ -497,56 +500,75 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
 
             Class<?> nmsClass = XposedHelpers.findClass("com.android.server.notification.NotificationManagerService", classLoader);
 
-            java.lang.reflect.Field binderServiceField = XposedHelpers.findFieldIfExists(nmsClass, "mService");
+            XposedBridge.hookAllConstructors(nmsClass, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (sHooked.get()) return;
 
-            if (binderServiceField == null) {
-                Log.ex("未找到 mService 字段", null);
-                return;
-            }
+                    Object nmsInstance = param.thisObject;
+                    if (nmsInstance == null) return;
 
-            Class<?> binderServiceClass = binderServiceField.getType();
-
-            try {
-                java.lang.reflect.Method method = binderServiceClass.getDeclaredMethod(
-                        "setInterruptionFilter",
-                        String.class,
-                        int.class,
-                        boolean.class
-                );
-
-                // 找到后直接Hook
-                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        String pkg = (String) param.args[0];
-
-                        if ("com.xiaomi.wearable".equals(pkg) || "com.mi.health".equals(pkg)) {
-                            // 提权：切换为 System UID (1000)
-                            long token = android.os.Binder.clearCallingIdentity();
-                            param.setObjectExtra("binder_token", token);
-
-                            // 伪装：将包名强制篡改为 android
-                            param.args[0] = "android";
-                            Log.ix("SystemServer: 匹配到小米运动健康，已执行UID提权并伪装包名", null);
-                        }
+                    Object mService;
+                    try {
+                        mService = XposedHelpers.getObjectField(nmsInstance, "mService");
+                    } catch (Throwable t) {
+                        return;
                     }
 
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        Object tokenObj = param.getObjectExtra("binder_token");
-                        if (tokenObj != null) {
-                            // 恢复UID身份
-                            android.os.Binder.restoreCallingIdentity((long) tokenObj);
-                        }
+                    if (mService == null) {
+                        return;
                     }
-                });
 
-                Log.ix("SystemServer Hook 注入成功", null);
+                    if (!sHooked.compareAndSet(false, true)) {
+                        return;
+                    }
 
-            } catch (NoSuchMethodException e) {
-                Log.ex("查找setInterruptionFilter方法失败", null);
+                    Log.ix("mService 实例: " + mService.getClass().getName(), null);
 
-            }
+                    try {
+                        java.lang.reflect.Method method = mService.getClass().getDeclaredMethod(
+                                "setInterruptionFilter",
+                                String.class,
+                                int.class,
+                                boolean.class
+                        );
+
+                        // 找到后直接Hook
+                        XposedBridge.hookMethod(method, new XC_MethodHook() {
+                            @Override
+                            protected void beforeHookedMethod(MethodHookParam param) {
+                                String pkg = (String) param.args[0];
+
+                                if ("com.xiaomi.wearable".equals(pkg) || "com.mi.health".equals(pkg)) {
+                                    // 提权：切换为 System UID (1000)
+                                    long token = android.os.Binder.clearCallingIdentity();
+                                    param.setObjectExtra("binder_token", token);
+
+                                    // 伪装：将包名强制篡改为 android
+                                    param.args[0] = "android";
+                                    Log.ix("SystemServer: 匹配到小米运动健康，已执行UID提权并伪装包名", null);
+                                }
+                            }
+
+                            @Override
+                            protected void afterHookedMethod(MethodHookParam param) {
+                                Object tokenObj = param.getObjectExtra("binder_token");
+                                if (tokenObj != null) {
+                                    // 恢复UID身份
+                                    android.os.Binder.restoreCallingIdentity((long) tokenObj);
+                                }
+                            }
+                        });
+
+                        Log.ix("SystemServer Hook 注入成功", null);
+
+                    } catch (NoSuchMethodException t) {
+                        Log.ex("setInterruptionFilter函数查找失败", t);
+                        // 失败时允许下次重试
+                        sHooked.set(false);
+                    }
+                }
+            });
 
         } catch (Throwable t) {
             Log.ex("SystemServer Hook异常: ", t);
